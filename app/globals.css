@@ -141,3 +141,17 @@ select {
   background: var(--color-accent-light);
   color: var(--color-accent);
 }
+
+/* Mobile modal fixes */
+@supports (height: 100dvh) {
+  .modal-container {
+    max-height: 85dvh !important;
+  }
+}
+
+/* Safe area for iOS */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .modal-footer {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}

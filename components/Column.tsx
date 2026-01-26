@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useRef, KeyboardEvent } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Plus } from 'lucide-react'
@@ -12,6 +13,7 @@ interface ColumnProps {
   tasks: Task[]
   onTaskClick: (task: Task) => void
   onAddTask: () => void
+  onQuickAdd: (title: string) => void
 }
 
 // Column header accent colors - subtle indicator for each column
@@ -27,15 +29,29 @@ export default function Column({
   tasks,
   onTaskClick,
   onAddTask,
+  onQuickAdd,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id })
+  const [quickAddValue, setQuickAddValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const taskIds = tasks.map((task) => task.id)
+
+  const handleQuickAddKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && quickAddValue.trim()) {
+      onQuickAdd(quickAddValue.trim())
+      setQuickAddValue('')
+    }
+    if (e.key === 'Escape') {
+      setQuickAddValue('')
+      inputRef.current?.blur()
+    }
+  }
 
   return (
     <div className="flex flex-col min-w-[300px] max-w-[340px] flex-1">
       {/* Column header */}
-      <div className="flex items-center justify-between mb-4 px-1">
+      <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-3">
           {/* Status indicator dot */}
           <div className={`w-2.5 h-2.5 rounded-full ${columnAccents[id]}`} />
@@ -59,6 +75,27 @@ export default function Column({
         >
           <Plus size={18} strokeWidth={2} />
         </button>
+      </div>
+
+      {/* Quick Add Input */}
+      <div className="mb-2 px-1">
+        <input
+          ref={inputRef}
+          type="text"
+          value={quickAddValue}
+          onChange={(e) => setQuickAddValue(e.target.value)}
+          onKeyDown={handleQuickAddKeyDown}
+          placeholder="+ Adicionar tarefa..."
+          className="
+            w-full h-9 px-3 text-sm rounded-lg
+            bg-transparent border border-transparent
+            text-[var(--color-text-primary)]
+            placeholder:text-[var(--color-text-muted)]
+            hover:bg-white hover:border-[var(--color-border)]
+            focus:bg-white focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
+            transition-all duration-150 outline-none
+          "
+        />
       </div>
 
       {/* Droppable area */}

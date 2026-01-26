@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import {
   Task,
@@ -12,6 +12,8 @@ import {
   COLUMNS,
   PRIORITIES,
   ASSIGNEES,
+  TAGS,
+  TagId,
 } from '@/lib/types'
 
 interface TaskModalProps {
@@ -31,20 +33,18 @@ export default function TaskModal({
   onSave,
   onDelete,
 }: TaskModalProps) {
-  const modalRef = useRef<HTMLDivElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
-  // Form state
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<TaskStatus>(defaultStatus)
   const [priority, setPriority] = useState<TaskPriority>('medium')
   const [assignee, setAssignee] = useState<Assignee>('guilherme')
   const [dueDate, setDueDate] = useState('')
+  const [selectedTags, setSelectedTags] = useState<TagId[]>([])
 
   const isEditing = !!task
 
-  // Populate form when task changes
   useEffect(() => {
     if (task) {
       setTitle(task.title)
@@ -53,48 +53,40 @@ export default function TaskModal({
       setPriority(task.priority)
       setAssignee(task.assignee)
       setDueDate(task.due_date ? format(new Date(task.due_date), 'yyyy-MM-dd') : '')
+      setSelectedTags((task.tags as TagId[]) || [])
     } else {
-      // Reset form for new task
       setTitle('')
       setDescription('')
       setStatus(defaultStatus)
       setPriority('medium')
       setAssignee('guilherme')
       setDueDate('')
+      setSelectedTags([])
     }
   }, [task, defaultStatus, isOpen])
 
-  // Focus title input when modal opens
   useEffect(() => {
     if (isOpen && titleInputRef.current) {
-      titleInputRef.current.focus()
+      setTimeout(() => titleInputRef.current?.focus(), 100)
     }
   }, [isOpen])
 
-  // Handle escape key and click outside
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-      document.addEventListener('mousedown', handleClickOutside)
       document.body.style.overflow = 'hidden'
     }
-
     return () => {
-      document.removeEventListener('keydown', handleEscape)
-      document.removeEventListener('mousedown', handleClickOutside)
       document.body.style.overflow = ''
     }
-  }, [isOpen, onClose])
+  }, [isOpen])
+
+  const toggleTag = (tagId: TagId) => {
+    setSelectedTags(prev => 
+      prev.includes(tagId)
+        ? prev.filter(t => t !== tagId)
+        : [...prev, tagId]
+    )
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -108,272 +100,294 @@ export default function TaskModal({
       priority,
       assignee,
       due_date: dueDate || undefined,
+      tags: selectedTags.length > 0 ? selectedTags : undefined,
     })
-  }
-
-  const handleDelete = () => {
-    if (task && onDelete) {
-      onDelete(task.id)
-    }
   }
 
   if (!isOpen) return null
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    height: '42px',
+    padding: '0 12px',
+    fontSize: '16px',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    backgroundColor: 'white',
+    boxSizing: 'border-box',
+    outline: 'none',
+  }
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#374151',
+    marginBottom: '4px',
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm">
+    <>
+      {/* Backdrop */}
+      <div 
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 9998,
+          backgroundColor: 'rgba(0,0,0,0.3)',
+          backdropFilter: 'blur(2px)',
+        }}
+      />
+      
+      {/* Card Modal - Centered */}
       <div
-        ref={modalRef}
-        className="
-          w-full max-w-lg bg-white rounded-lg shadow-lg
-          animate-in fade-in-0 zoom-in-95 duration-200
-        "
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
+        style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 9999,
+          width: 'calc(100% - 32px)',
+          maxWidth: '420px',
+          maxHeight: 'calc(100vh - 80px)',
+          backgroundColor: 'white',
+          borderRadius: '16px',
+          boxShadow: '0 20px 40px rgba(0,0,0,0.15)',
+          display: 'grid',
+          gridTemplateRows: 'auto 1fr auto',
+          overflow: 'hidden',
+        }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-          <h2 id="modal-title" className="text-lg font-semibold text-[var(--color-text-primary)]">
+        <div style={{ 
+          padding: '16px 20px', 
+          borderBottom: '1px solid #f3f4f6',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <h2 style={{ fontSize: '17px', fontWeight: 600, margin: 0, color: '#111827' }}>
             {isEditing ? 'Editar Tarefa' : 'Nova Tarefa'}
           </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="
-              p-2 rounded-md text-[var(--color-text-muted)]
-              hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-secondary)]
-              transition-colors duration-150
-            "
-            aria-label="Fechar"
+            style={{ 
+              padding: '6px', 
+              background: 'none', 
+              border: 'none', 
+              cursor: 'pointer',
+              borderRadius: '6px',
+              display: 'flex',
+            }}
           >
-            <X size={20} />
+            <X size={20} color="#9ca3af" />
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="flex flex-col gap-5">
-            {/* Title */}
-            <div>
-              <label
-                htmlFor="title"
-                className="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-              >
-                Título
-              </label>
-              <input
-                ref={titleInputRef}
-                id="title"
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Nome da tarefa"
-                className="
-                  w-full h-11 px-4 rounded-md
-                  border border-[var(--color-border)]
-                  text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]
-                  focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
-                  transition-colors duration-150
-                "
-                required
-              />
-            </div>
-
-            {/* Description */}
-            <div>
-              <label
-                htmlFor="description"
-                className="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-              >
-                Descrição
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Adicionar descrição..."
-                rows={3}
-                className="
-                  w-full px-4 py-3 rounded-md resize-none
-                  border border-[var(--color-border)]
-                  text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]
-                  focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
-                  transition-colors duration-150
-                "
-              />
-            </div>
-
-            {/* Row: Status & Priority */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Status */}
+        {/* Content - Scrollable */}
+        <div style={{ overflow: 'auto', padding: '16px 20px' }}>
+          <form id="task-form" onSubmit={handleSubmit}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label
-                  htmlFor="status"
-                  className="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-                >
-                  Estado
-                </label>
-                <select
-                  id="status"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                  className="
-                    w-full h-11 px-4 rounded-md appearance-none
-                    border border-[var(--color-border)] bg-white
-                    text-[var(--color-text-primary)]
-                    focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
-                    transition-colors duration-150
-                    cursor-pointer
-                  "
-                >
-                  {COLUMNS.map((col) => (
-                    <option key={col.id} value={col.id}>
-                      {col.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Priority */}
-              <div>
-                <label
-                  htmlFor="priority"
-                  className="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-                >
-                  Prioridade
-                </label>
-                <select
-                  id="priority"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                  className="
-                    w-full h-11 px-4 rounded-md appearance-none
-                    border border-[var(--color-border)] bg-white
-                    text-[var(--color-text-primary)]
-                    focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
-                    transition-colors duration-150
-                    cursor-pointer
-                  "
-                >
-                  {PRIORITIES.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Row: Assignee & Due Date */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Assignee */}
-              <div>
-                <label
-                  htmlFor="assignee"
-                  className="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-                >
-                  Responsável
-                </label>
-                <select
-                  id="assignee"
-                  value={assignee}
-                  onChange={(e) => setAssignee(e.target.value as Assignee)}
-                  className="
-                    w-full h-11 px-4 rounded-md appearance-none
-                    border border-[var(--color-border)] bg-white
-                    text-[var(--color-text-primary)]
-                    focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
-                    transition-colors duration-150
-                    cursor-pointer
-                  "
-                >
-                  {ASSIGNEES.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Due Date */}
-              <div>
-                <label
-                  htmlFor="dueDate"
-                  className="block text-sm font-medium text-[var(--color-text-primary)] mb-2"
-                >
-                  Data Limite
-                </label>
+                <label style={labelStyle}>Título</label>
                 <input
-                  id="dueDate"
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="
-                    w-full h-11 px-4 rounded-md
-                    border border-[var(--color-border)] bg-white
-                    text-[var(--color-text-primary)]
-                    focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
-                    transition-colors duration-150
-                    cursor-pointer
-                  "
+                  ref={titleInputRef}
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Nome da tarefa"
+                  required
+                  style={inputStyle}
                 />
               </div>
-            </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex items-center justify-between mt-6 pt-5 border-t border-[var(--color-border)]">
-            {/* Delete button (only when editing) */}
-            {isEditing && onDelete ? (
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="
-                  flex items-center gap-2 px-4 py-2.5 rounded-md
-                  text-red-600 text-sm font-medium
-                  hover:bg-red-50
-                  transition-colors duration-150
-                "
-              >
-                <Trash2 size={16} />
-                Eliminar
-              </button>
-            ) : (
-              <div />
-            )}
+              <div>
+                <label style={labelStyle}>Descrição</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Opcional..."
+                  rows={2}
+                  style={{
+                    ...inputStyle,
+                    height: 'auto',
+                    padding: '10px 12px',
+                    resize: 'none',
+                  }}
+                />
+              </div>
 
-            {/* Save / Cancel buttons */}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="
-                  px-4 py-2.5 rounded-md
-                  text-sm font-medium text-[var(--color-text-secondary)]
-                  border border-[var(--color-border)]
-                  hover:bg-[var(--color-bg-secondary)]
-                  transition-colors duration-150
-                "
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={!title.trim()}
-                className="
-                  px-5 py-2.5 rounded-md
-                  text-sm font-medium text-white
-                  bg-[var(--color-accent)]
-                  hover:bg-[var(--color-accent-hover)]
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  transition-colors duration-150
-                "
-              >
-                {isEditing ? 'Guardar' : 'Criar Tarefa'}
-              </button>
+              {/* Tags Multi-select */}
+              <div>
+                <label style={labelStyle}>Etiquetas</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {TAGS.map((tag) => {
+                    const isSelected = selectedTags.includes(tag.id)
+                    // Map Tailwind classes to actual colors for inline styles
+                    const colorMap: Record<string, { bg: string; bgSelected: string; text: string; border: string }> = {
+                      trabalho: { bg: '#eff6ff', bgSelected: '#3b82f6', text: '#1d4ed8', border: '#93c5fd' },
+                      pessoal: { bg: '#f0fdf4', bgSelected: '#22c55e', text: '#15803d', border: '#86efac' },
+                      urgente: { bg: '#fef2f2', bgSelected: '#ef4444', text: '#b91c1c', border: '#fca5a5' },
+                      ideia: { bg: '#faf5ff', bgSelected: '#a855f7', text: '#7e22ce', border: '#d8b4fe' },
+                    }
+                    const colors = colorMap[tag.id]
+                    
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => toggleTag(tag.id)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '6px 12px',
+                          fontSize: '13px',
+                          fontWeight: 500,
+                          borderRadius: '9999px',
+                          border: `1px solid ${isSelected ? colors.bgSelected : colors.border}`,
+                          backgroundColor: isSelected ? colors.bgSelected : colors.bg,
+                          color: isSelected ? 'white' : colors.text,
+                          cursor: 'pointer',
+                          transition: 'all 150ms',
+                        }}
+                      >
+                        {isSelected && <Check size={14} />}
+                        {tag.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={labelStyle}>Estado</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as TaskStatus)}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                  >
+                    {COLUMNS.map((col) => (
+                      <option key={col.id} value={col.id}>{col.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Prioridade</label>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as TaskPriority)}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                  >
+                    {PRIORITIES.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={labelStyle}>Responsável</label>
+                  <select
+                    value={assignee}
+                    onChange={(e) => setAssignee(e.target.value as Assignee)}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                  >
+                    {ASSIGNEES.map((a) => (
+                      <option key={a.id} value={a.id}>{a.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Data Limite</label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    style={{ ...inputStyle, cursor: 'pointer' }}
+                  />
+                </div>
+              </div>
             </div>
+          </form>
+        </div>
+
+        {/* Footer */}
+        <div style={{ 
+          padding: '14px 20px', 
+          borderTop: '1px solid #f3f4f6',
+          backgroundColor: '#fafafa',
+          display: 'flex',
+          gap: '10px',
+          justifyContent: isEditing && onDelete ? 'space-between' : 'flex-end',
+          alignItems: 'center',
+        }}>
+          {isEditing && onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(task!.id)}
+              style={{
+                padding: '10px 14px',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: '#dc2626',
+                backgroundColor: 'transparent',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Trash2 size={16} />
+              Eliminar
+            </button>
+          )}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 16px',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: '#6b7280',
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                cursor: 'pointer',
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              form="task-form"
+              disabled={!title.trim()}
+              style={{
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: 600,
+                color: 'white',
+                backgroundColor: title.trim() ? '#4f46e5' : '#d1d5db',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: title.trim() ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {isEditing ? 'Guardar' : 'Criar'}
+            </button>
           </div>
-        </form>
+        </div>
       </div>
-    </div>
+    </>
   )
 }

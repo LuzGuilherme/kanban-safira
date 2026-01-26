@@ -55,3 +55,20 @@ export const ASSIGNEES: { id: Assignee; label: string; emoji: string }[] = [
   { id: 'guilherme', label: 'Guilherme', emoji: '👤' },
   { id: 'safira', label: 'Safira', emoji: '✨' },
 ]
+
+// Predefined tags with colors
+export type TagId = 'trabalho' | 'pessoal' | 'urgente' | 'ideia'
+
+export interface TagDefinition {
+  id: TagId
+  label: string
+  bgColor: string
+  textColor: string
+}
+
+export const TAGS: TagDefinition[] = [
+  { id: 'trabalho', label: 'Trabalho', bgColor: 'bg-blue-100', textColor: 'text-blue-700' },
+  { id: 'pessoal', label: 'Pessoal', bgColor: 'bg-green-100', textColor: 'text-green-700' },
+  { id: 'urgente', label: 'Urgente', bgColor: 'bg-red-100', textColor: 'text-red-700' },
+  { id: 'ideia', label: 'Ideia', bgColor: 'bg-purple-100', textColor: 'text-purple-700' },
+]

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -13,7 +13,9 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Filter, Plus, RefreshCw } from 'lucide-react'
+import { Filter, Plus, RefreshCw, CheckCircle2, CalendarClock, Tag } from 'lucide-react'
+import toast, { Toaster } from 'react-hot-toast'
+import confetti from 'canvas-confetti'
 import { supabase } from '@/lib/supabase'
 import {
   Task,
@@ -22,15 +24,59 @@ import {
   CreateTaskInput,
   COLUMNS,
   ASSIGNEES,
+  TAGS,
+  TagId,
 } from '@/lib/types'
 import Column from './Column'
 import TaskCard from './TaskCard'
 import TaskModal from './TaskModal'
+import { isToday } from 'date-fns'
+
+// Fire confetti celebration
+const fireConfetti = () => {
+  const count = 200
+  const defaults = {
+    origin: { y: 0.7 },
+    zIndex: 9999,
+  }
+
+  function fire(particleRatio: number, opts: confetti.Options) {
+    confetti({
+      ...defaults,
+      ...opts,
+      particleCount: Math.floor(count * particleRatio),
+    })
+  }
+
+  fire(0.25, {
+    spread: 26,
+    startVelocity: 55,
+  })
+  fire(0.2, {
+    spread: 60,
+  })
+  fire(0.35, {
+    spread: 100,
+    decay: 0.91,
+    scalar: 0.8,
+  })
+  fire(0.1, {
+    spread: 120,
+    startVelocity: 25,
+    decay: 0.92,
+    scalar: 1.2,
+  })
+  fire(0.1, {
+    spread: 120,
+    startVelocity: 45,
+  })
+}
 
 export default function Board() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [filterAssignee, setFilterAssignee] = useState<Assignee | 'all'>('all')
+  const [filterTag, setFilterTag] = useState<TagId | 'all'>('all')
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -39,6 +85,9 @@ export default function Board() {
 
   // Drag state
   const [activeTask, setActiveTask] = useState<Task | null>(null)
+  
+  // Track previous status for confetti trigger
+  const previousStatusRef = useRef<Map<string, TaskStatus>>(new Map())
 
   // Configure drag sensors
   const sensors = useSensors(
@@ -61,7 +110,14 @@ export default function Board() {
       return
     }
 
-    setTasks(data || [])
+    const fetchedTasks = data || []
+    
+    // Initialize previous status tracking
+    fetchedTasks.forEach((task) => {
+      previousStatusRef.current.set(task.id, task.status)
+    })
+    
+    setTasks(fetchedTasks)
     setLoading(false)
   }, [])
 
@@ -77,12 +133,24 @@ export default function Board() {
         { event: '*', schema: 'public', table: 'tasks' },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setTasks((prev) => [...prev, payload.new as Task])
+            const newTask = payload.new as Task
+            previousStatusRef.current.set(newTask.id, newTask.status)
+            setTasks((prev) => [...prev, newTask])
           } else if (payload.eventType === 'UPDATE') {
+            const updatedTask = payload.new as Task
+            const prevStatus = previousStatusRef.current.get(updatedTask.id)
+            
+            // Fire confetti if task was moved to done
+            if (prevStatus !== 'done' && updatedTask.status === 'done') {
+              fireConfetti()
+            }
+            
+            previousStatusRef.current.set(updatedTask.id, updatedTask.status)
             setTasks((prev) =>
-              prev.map((t) => (t.id === payload.new.id ? (payload.new as Task) : t))
+              prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
             )
           } else if (payload.eventType === 'DELETE') {
+            previousStatusRef.current.delete(payload.old.id)
             setTasks((prev) => prev.filter((t) => t.id !== payload.old.id))
           }
         }
@@ -94,10 +162,12 @@ export default function Board() {
     }
   }, [fetchTasks])
 
-  // Filter tasks by assignee
-  const filteredTasks = filterAssignee === 'all'
-    ? tasks
-    : tasks.filter((t) => t.assignee === filterAssignee)
+  // Filter tasks by assignee and tag
+  const filteredTasks = tasks.filter((t) => {
+    const matchesAssignee = filterAssignee === 'all' || t.assignee === filterAssignee
+    const matchesTag = filterTag === 'all' || (t.tags && t.tags.includes(filterTag))
+    return matchesAssignee && matchesTag
+  })
 
   // Group tasks by status
   const tasksByStatus = COLUMNS.reduce(
@@ -109,6 +179,13 @@ export default function Board() {
     }),
     {} as Record<TaskStatus, Task[]>
   )
+
+  // Calculate task statistics
+  const totalTasks = filteredTasks.length
+  const completedTasks = filteredTasks.filter((t) => t.status === 'done').length
+  const dueTodayTasks = filteredTasks.filter(
+    (t) => t.due_date && isToday(new Date(t.due_date)) && t.status !== 'done'
+  ).length
 
   // Handle drag start
   const handleDragStart = (event: DragStartEvent) => {
@@ -168,6 +245,9 @@ export default function Board() {
 
     const activeTaskData = tasks.find((t) => t.id === activeId)
     if (!activeTaskData) return
+    
+    // Get the original status before the drag
+    const originalStatus = previousStatusRef.current.get(activeId)
 
     // Determine target status
     let targetStatus: TaskStatus = activeTaskData.status
@@ -232,7 +312,7 @@ export default function Board() {
     }
 
     // If moving to done, set completed_at
-    if (targetStatus === 'done' && activeTaskData.status !== 'done') {
+    if (targetStatus === 'done' && originalStatus !== 'done') {
       updates.completed_at = new Date().toISOString()
     } else if (targetStatus !== 'done' && activeTaskData.completed_at) {
       updates.completed_at = null
@@ -260,27 +340,70 @@ export default function Board() {
     setEditingTask(null)
   }
 
+  // Quick add task (from column input)
+  const handleQuickAdd = async (title: string, status: TaskStatus) => {
+    const columnTasks = tasks.filter((t) => t.status === status)
+    const maxPosition = columnTasks.length > 0
+      ? Math.max(...columnTasks.map((t) => t.position))
+      : -1
+
+    const { error } = await supabase.from('tasks').insert({
+      title,
+      description: null,
+      status,
+      priority: 'medium',
+      assignee: 'guilherme',
+      due_date: null,
+      tags: [],
+      position: maxPosition + 1,
+    })
+
+    if (error) {
+      console.error('Error creating task:', error)
+      toast.error('Erro ao criar tarefa')
+      return
+    }
+    toast.success('Tarefa criada!')
+  }
+
   // Save task (create or update)
   const handleSaveTask = async (data: CreateTaskInput & { id?: string }) => {
     if (data.id) {
+      // Get current task to check if status changed
+      const currentTask = tasks.find((t) => t.id === data.id)
+      const wasNotDone = currentTask?.status !== 'done'
+      const isNowDone = data.status === 'done'
+      
       // Update existing task
+      const updateData: Partial<Task> & { updated_at: string } = {
+        title: data.title,
+        description: data.description || null,
+        status: data.status,
+        priority: data.priority,
+        assignee: data.assignee,
+        due_date: data.due_date || null,
+        tags: data.tags || [],
+        updated_at: new Date().toISOString(),
+      }
+      
+      // Set completed_at if moving to done
+      if (wasNotDone && isNowDone) {
+        updateData.completed_at = new Date().toISOString()
+      } else if (!isNowDone) {
+        updateData.completed_at = null
+      }
+      
       const { error } = await supabase
         .from('tasks')
-        .update({
-          title: data.title,
-          description: data.description || null,
-          status: data.status,
-          priority: data.priority,
-          assignee: data.assignee,
-          due_date: data.due_date || null,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', data.id)
 
       if (error) {
         console.error('Error updating task:', error)
+        toast.error('Erro ao atualizar tarefa')
         return
       }
+      toast.success('Tarefa atualizada!')
     } else {
       // Create new task
       const columnTasks = tasks.filter((t) => t.status === data.status)
@@ -295,13 +418,16 @@ export default function Board() {
         priority: data.priority || 'medium',
         assignee: data.assignee || 'guilherme',
         due_date: data.due_date || null,
+        tags: data.tags || [],
         position: maxPosition + 1,
       })
 
       if (error) {
         console.error('Error creating task:', error)
+        toast.error('Erro ao criar tarefa')
         return
       }
+      toast.success('Tarefa criada!')
     }
 
     closeModal()
@@ -313,30 +439,88 @@ export default function Board() {
 
     if (error) {
       console.error('Error deleting task:', error)
+      toast.error('Erro ao eliminar tarefa')
       return
     }
 
+    toast.success('Tarefa eliminada!')
     closeModal()
   }
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
+      <Toaster 
+        position="bottom-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#333',
+            color: '#fff',
+            borderRadius: '8px',
+          },
+          success: {
+            iconTheme: {
+              primary: '#6366f1',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-[var(--color-border)]">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            {/* Title */}
+            {/* Title and stats */}
             <div>
               <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">
                 Quadro Kanban
               </h1>
-              <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-                Guilherme & Safira
-              </p>
+              <div className="flex items-center gap-4 mt-1">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  Guilherme & Safira
+                </p>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="flex items-center gap-1.5 text-[var(--color-text-muted)]">
+                    <CheckCircle2 size={14} className="text-green-500" />
+                    {completedTasks}/{totalTasks} tarefas
+                  </span>
+                  {dueTodayTasks > 0 && (
+                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                      <CalendarClock size={14} />
+                      {dueTodayTasks} para hoje
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-3">
+              {/* Filter by tag */}
+              <div className="flex items-center gap-2">
+                <Tag size={16} className="text-[var(--color-text-muted)]" />
+                <select
+                  value={filterTag}
+                  onChange={(e) => setFilterTag(e.target.value as TagId | 'all')}
+                  className="
+                    h-9 px-3 pr-8 rounded-md text-sm appearance-none
+                    border border-[var(--color-border)] bg-white
+                    text-[var(--color-text-primary)]
+                    hover:border-[var(--color-border-hover)]
+                    focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
+                    transition-colors duration-150
+                    cursor-pointer
+                  "
+                >
+                  <option value="all">Todas etiquetas</option>
+                  {TAGS.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Filter by assignee */}
               <div className="flex items-center gap-2">
                 <Filter size={16} className="text-[var(--color-text-muted)]" />
@@ -417,6 +601,7 @@ export default function Board() {
                   tasks={tasksByStatus[column.id]}
                   onTaskClick={openEditTaskModal}
                   onAddTask={() => openNewTaskModal(column.id)}
+                  onQuickAdd={(title) => handleQuickAdd(title, column.id)}
                 />
               ))}
             </div>
