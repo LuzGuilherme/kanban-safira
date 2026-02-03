@@ -60,6 +60,31 @@
   --transition-normal: 200ms ease;
 }
 
+/* Dark Mode */
+[data-theme="dark"] {
+  /* Base colors - dark palette */
+  --color-bg: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-surface: #1e293b;
+  --color-border: #334155;
+  --color-border-hover: #475569;
+
+  /* Text colors */
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+
+  /* Accent color */
+  --color-accent: #818cf8;
+  --color-accent-hover: #6366f1;
+  --color-accent-light: #1e1b4b;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
 @theme inline {
   --color-background: var(--color-bg);
   --color-foreground: var(--color-text-primary);
@@ -85,6 +110,14 @@ body {
   font-family: var(--font-sans);
   line-height: 1.5;
   min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark mode transitions for all elements */
+*,
+*::before,
+*::after {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
 /* Focus styles for accessibility */

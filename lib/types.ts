@@ -1,6 +1,8 @@
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high'
 export type Assignee = 'guilherme' | 'safira'
+export type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly'
+export type ActivityAction = 'created' | 'updated' | 'moved' | 'completed' | 'deleted'
 
 export interface Task {
   id: string
@@ -12,9 +14,19 @@ export interface Task {
   due_date: string | null
   tags: string[] | null
   position: number
+  recurrence: Recurrence
   created_at: string
   updated_at: string
   completed_at: string | null
+}
+
+export interface ActivityLog {
+  id: string
+  task_id: string
+  action: ActivityAction
+  user_name: string
+  details: Record<string, unknown> | null
+  created_at: string
 }
 
 export interface CreateTaskInput {
@@ -25,6 +37,7 @@ export interface CreateTaskInput {
   assignee?: Assignee
   due_date?: string
   tags?: string[]
+  recurrence?: Recurrence
 }
 
 export interface UpdateTaskInput {
@@ -37,6 +50,7 @@ export interface UpdateTaskInput {
   tags?: string[]
   position?: number
   completed_at?: string
+  recurrence?: Recurrence
 }
 
 export const COLUMNS: { id: TaskStatus; title: string }[] = [
@@ -51,9 +65,16 @@ export const PRIORITIES: { id: TaskPriority; label: string }[] = [
   { id: 'low', label: 'Baixa' },
 ]
 
-export const ASSIGNEES: { id: Assignee; label: string; emoji: string }[] = [
-  { id: 'guilherme', label: 'Guilherme', emoji: '👤' },
-  { id: 'safira', label: 'Safira', emoji: '✨' },
+export const ASSIGNEES: { id: Assignee; label: string; emoji: string; avatar: string }[] = [
+  { id: 'guilherme', label: 'Guilherme', emoji: '👤', avatar: '/avatar-guilherme.jpg' },
+  { id: 'safira', label: 'Safira', emoji: '✨', avatar: '/avatar-safira.jpg' },
+]
+
+export const RECURRENCES: { id: Recurrence; label: string }[] = [
+  { id: 'none', label: 'Não repete' },
+  { id: 'daily', label: 'Diário' },
+  { id: 'weekly', label: 'Semanal' },
+  { id: 'monthly', label: 'Mensal' },
 ]
 
 // Predefined tags with colors

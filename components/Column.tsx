@@ -91,8 +91,8 @@ export default function Column({
             bg-transparent border border-transparent
             text-[var(--color-text-primary)]
             placeholder:text-[var(--color-text-muted)]
-            hover:bg-white hover:border-[var(--color-border)]
-            focus:bg-white focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
+            hover:bg-[var(--color-surface)] hover:border-[var(--color-border)]
+            focus:bg-[var(--color-surface)] focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
             transition-all duration-150 outline-none
           "
         />

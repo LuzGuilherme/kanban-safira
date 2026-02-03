@@ -13,10 +13,13 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { Filter, Plus, RefreshCw, CheckCircle2, CalendarClock, Tag } from 'lucide-react'
+import { Filter, Plus, RefreshCw, CheckCircle2, CalendarClock, Tag, Sun, Moon, LayoutGrid, Calendar } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
 import confetti from 'canvas-confetti'
+import { addDays, addWeeks, addMonths } from 'date-fns'
 import { supabase } from '@/lib/supabase'
+import { useTheme } from '@/lib/ThemeContext'
+import { logActivity } from '@/lib/activity'
 import {
   Task,
   TaskStatus,
@@ -26,11 +29,19 @@ import {
   ASSIGNEES,
   TAGS,
   TagId,
+  Recurrence,
 } from '@/lib/types'
 import Column from './Column'
 import TaskCard from './TaskCard'
 import TaskModal from './TaskModal'
-import { isToday } from 'date-fns'
+import CalendarView from './CalendarView'
+import { isToday, format } from 'date-fns'
+
+// View types
+type ViewMode = 'kanban' | 'calendar'
+
+// Current user name - in a real app, this would come from auth
+const CURRENT_USER = 'Guilherme'
 
 // Fire confetti celebration
 const fireConfetti = () => {
@@ -72,19 +83,41 @@ const fireConfetti = () => {
   })
 }
 
+// Calculate next due date based on recurrence
+function getNextDueDate(currentDueDate: string, recurrence: Recurrence): string {
+  const date = new Date(currentDueDate)
+  switch (recurrence) {
+    case 'daily':
+      return addDays(date, 1).toISOString().split('T')[0]
+    case 'weekly':
+      return addWeeks(date, 1).toISOString().split('T')[0]
+    case 'monthly':
+      return addMonths(date, 1).toISOString().split('T')[0]
+    default:
+      return currentDueDate
+  }
+}
+
 export default function Board() {
+  const { theme, toggleTheme } = useTheme()
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [filterAssignee, setFilterAssignee] = useState<Assignee | 'all'>('all')
   const [filterTag, setFilterTag] = useState<TagId | 'all'>('all')
+  
+  // View mode state
+  const [viewMode, setViewMode] = useState<ViewMode>('kanban')
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [defaultColumnForNewTask, setDefaultColumnForNewTask] = useState<TaskStatus>('todo')
+  const [defaultDueDate, setDefaultDueDate] = useState<string | undefined>(undefined)
 
   // Drag state
   const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dndKey, setDndKey] = useState(0)
   
   // Track previous status for confetti trigger
   const previousStatusRef = useRef<Map<string, TaskStatus>>(new Map())
@@ -121,6 +154,20 @@ export default function Board() {
     setLoading(false)
   }, [])
 
+  // Load view preference from localStorage
+  useEffect(() => {
+    const savedView = localStorage.getItem('kanban-view-mode') as ViewMode | null
+    if (savedView === 'kanban' || savedView === 'calendar') {
+      setViewMode(savedView)
+    }
+  }, [])
+
+  // Toggle view mode
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem('kanban-view-mode', mode)
+  }
+
   // Initial fetch and real-time subscription
   useEffect(() => {
     fetchTasks()
@@ -146,9 +193,17 @@ export default function Board() {
             }
             
             previousStatusRef.current.set(updatedTask.id, updatedTask.status)
-            setTasks((prev) =>
-              prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
-            )
+            
+            // Use functional update to ensure we have latest state
+            setTasks((prev) => {
+              // Check if task already has the same updated_at (already applied locally)
+              const existingTask = prev.find(t => t.id === updatedTask.id)
+              if (existingTask && existingTask.updated_at === updatedTask.updated_at) {
+                // Skip update if already applied (same timestamp)
+                return prev
+              }
+              return prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+            })
           } else if (payload.eventType === 'DELETE') {
             previousStatusRef.current.delete(payload.old.id)
             setTasks((prev) => prev.filter((t) => t.id !== payload.old.id))
@@ -191,60 +246,37 @@ export default function Board() {
   const handleDragStart = (event: DragStartEvent) => {
     const task = tasks.find((t) => t.id === event.active.id)
     setActiveTask(task || null)
+    setIsDragging(true)
   }
 
   // Handle drag over (moving between columns)
+  // NOTE: We intentionally don't update state here to avoid breaking dnd-kit.
+  // The DragOverlay provides visual feedback. State is updated only in handleDragEnd.
   const handleDragOver = (event: DragOverEvent) => {
-    const { active, over } = event
-    if (!over) return
-
-    const activeId = active.id as string
-    const overId = over.id as string
-
-    // Find the active task
-    const activeTaskData = tasks.find((t) => t.id === activeId)
-    if (!activeTaskData) return
-
-    // Check if we're over a column
-    const isOverColumn = COLUMNS.some((col) => col.id === overId)
-    if (isOverColumn) {
-      const newStatus = overId as TaskStatus
-
-      if (activeTaskData.status !== newStatus) {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.id === activeId ? { ...t, status: newStatus } : t
-          )
-        )
-      }
-      return
-    }
-
-    // We're over another task
-    const overTask = tasks.find((t) => t.id === overId)
-    if (!overTask) return
-
-    if (activeTaskData.status !== overTask.status) {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === activeId ? { ...t, status: overTask.status } : t
-        )
-      )
-    }
+    // Intentionally empty - visual feedback is provided by DragOverlay
+    // and drop zones are highlighted by useDroppable's isOver state
   }
 
   // Handle drag end
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
     setActiveTask(null)
+    setIsDragging(false)
 
-    if (!over) return
+    if (!over) {
+      // Force DndContext reset even when dropped outside
+      setDndKey(prev => prev + 1)
+      return
+    }
 
     const activeId = active.id as string
     const overId = over.id as string
 
     const activeTaskData = tasks.find((t) => t.id === activeId)
-    if (!activeTaskData) return
+    if (!activeTaskData) {
+      setDndKey(prev => prev + 1)
+      return
+    }
     
     // Get the original status before the drag
     const originalStatus = previousStatusRef.current.get(activeId)
@@ -260,6 +292,15 @@ export default function Board() {
       if (overTask) {
         targetStatus = overTask.status
       }
+    }
+
+    // Optimistic update: immediately move card to target column for visual feedback
+    if (activeTaskData.status !== targetStatus) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === activeId ? { ...t, status: targetStatus } : t
+        )
+      )
     }
 
     // Get tasks in target column
@@ -297,6 +338,9 @@ export default function Board() {
             .update({ position: update.position })
             .eq('id', update.id)
         }
+        
+        // Force DndContext reset after reordering
+        setDndKey(prev => prev + 1)
         return
       } else {
         // Moving to different column
@@ -314,18 +358,73 @@ export default function Board() {
     // If moving to done, set completed_at
     if (targetStatus === 'done' && originalStatus !== 'done') {
       updates.completed_at = new Date().toISOString()
+      
+      // Log completed activity
+      await logActivity(activeId, 'completed', CURRENT_USER)
+      
+      // Handle recurring tasks
+      if (activeTaskData.recurrence && activeTaskData.recurrence !== 'none' && activeTaskData.due_date) {
+        const nextDueDate = getNextDueDate(activeTaskData.due_date, activeTaskData.recurrence)
+        const todoTasks = tasks.filter(t => t.status === 'todo')
+        const maxPosition = todoTasks.length > 0 
+          ? Math.max(...todoTasks.map(t => t.position)) 
+          : -1
+
+        // Create next recurring task
+        const { data: newTask, error: createError } = await supabase
+          .from('tasks')
+          .insert({
+            title: activeTaskData.title,
+            description: activeTaskData.description,
+            status: 'todo',
+            priority: activeTaskData.priority,
+            assignee: activeTaskData.assignee,
+            due_date: nextDueDate,
+            tags: activeTaskData.tags,
+            recurrence: activeTaskData.recurrence,
+            position: maxPosition + 1,
+          })
+          .select()
+          .single()
+
+        if (!createError && newTask) {
+          await logActivity(newTask.id, 'created', CURRENT_USER, { 
+            recurring: true, 
+            from_task: activeTaskData.id 
+          })
+          toast.success(`Tarefa recorrente criada para ${nextDueDate}`)
+        }
+      }
     } else if (targetStatus !== 'done' && activeTaskData.completed_at) {
       updates.completed_at = null
     }
+    
+    // Log move activity if status changed
+    if (originalStatus && originalStatus !== targetStatus) {
+      await logActivity(activeId, 'moved', CURRENT_USER, {
+        from: originalStatus,
+        to: targetStatus,
+      })
+    }
 
     await supabase.from('tasks').update(updates).eq('id', activeId)
+    
+    // Force DndContext reset after drag completes
+    setDndKey(prev => prev + 1)
   }
 
   // Open modal to create new task
-  const openNewTaskModal = (status: TaskStatus = 'todo') => {
+  const openNewTaskModal = (status: TaskStatus = 'todo', dueDate?: string) => {
     setEditingTask(null)
     setDefaultColumnForNewTask(status)
+    setDefaultDueDate(dueDate)
     setIsModalOpen(true)
+  }
+
+  // Handle calendar day click to create task with that date
+  const handleCalendarDayClick = (date: Date) => {
+    const formattedDate = format(date, 'yyyy-MM-dd')
+    openNewTaskModal('todo', formattedDate)
   }
 
   // Open modal to edit existing task
@@ -338,6 +437,7 @@ export default function Board() {
   const closeModal = () => {
     setIsModalOpen(false)
     setEditingTask(null)
+    setDefaultDueDate(undefined)
   }
 
   // Quick add task (from column input)
@@ -347,32 +447,53 @@ export default function Board() {
       ? Math.max(...columnTasks.map((t) => t.position))
       : -1
 
-    const { error } = await supabase.from('tasks').insert({
-      title,
-      description: null,
-      status,
-      priority: 'medium',
-      assignee: 'guilherme',
-      due_date: null,
-      tags: [],
-      position: maxPosition + 1,
-    })
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert({
+        title,
+        description: null,
+        status,
+        priority: 'medium',
+        assignee: 'guilherme',
+        due_date: null,
+        tags: [],
+        recurrence: 'none',
+        position: maxPosition + 1,
+      })
+      .select()
+      .single()
 
     if (error) {
       console.error('Error creating task:', error)
       toast.error('Erro ao criar tarefa')
       return
     }
+    
+    // Log activity
+    if (data) {
+      await logActivity(data.id, 'created', CURRENT_USER)
+    }
+    
     toast.success('Tarefa criada!')
   }
 
   // Save task (create or update)
   const handleSaveTask = async (data: CreateTaskInput & { id?: string }) => {
     if (data.id) {
-      // Get current task to check if status changed
+      // Get current task to check changes
       const currentTask = tasks.find((t) => t.id === data.id)
       const wasNotDone = currentTask?.status !== 'done'
       const isNowDone = data.status === 'done'
+      
+      // Track what changed
+      const changes: string[] = []
+      if (currentTask?.title !== data.title) changes.push('título')
+      if (currentTask?.description !== (data.description || null)) changes.push('descrição')
+      if (currentTask?.priority !== data.priority) changes.push('prioridade')
+      if (currentTask?.assignee !== data.assignee) changes.push('responsável')
+      if (currentTask?.due_date !== (data.due_date || null)) changes.push('data limite')
+      if (currentTask?.recurrence !== (data.recurrence || 'none')) changes.push('repetição')
+      if (JSON.stringify(currentTask?.tags || []) !== JSON.stringify(data.tags || [])) changes.push('etiquetas')
       
       // Update existing task
       const updateData: Partial<Task> & { updated_at: string } = {
@@ -383,6 +504,7 @@ export default function Board() {
         assignee: data.assignee,
         due_date: data.due_date || null,
         tags: data.tags || [],
+        recurrence: data.recurrence || 'none',
         updated_at: new Date().toISOString(),
       }
       
@@ -403,6 +525,65 @@ export default function Board() {
         toast.error('Erro ao atualizar tarefa')
         return
       }
+      
+      // Log activity
+      if (wasNotDone && isNowDone) {
+        await logActivity(data.id, 'completed', CURRENT_USER)
+        
+        // Handle recurring tasks
+        if (currentTask && currentTask.recurrence && currentTask.recurrence !== 'none' && currentTask.due_date) {
+          const nextDueDate = getNextDueDate(currentTask.due_date, currentTask.recurrence)
+          const todoTasks = tasks.filter(t => t.status === 'todo')
+          const maxPosition = todoTasks.length > 0 
+            ? Math.max(...todoTasks.map(t => t.position)) 
+            : -1
+
+          // Create next recurring task
+          const { data: newTask, error: createError } = await supabase
+            .from('tasks')
+            .insert({
+              title: currentTask.title,
+              description: currentTask.description,
+              status: 'todo',
+              priority: currentTask.priority,
+              assignee: currentTask.assignee,
+              due_date: nextDueDate,
+              tags: currentTask.tags,
+              recurrence: currentTask.recurrence,
+              position: maxPosition + 1,
+            })
+            .select()
+            .single()
+
+          if (!createError && newTask) {
+            await logActivity(newTask.id, 'created', CURRENT_USER, { 
+              recurring: true, 
+              from_task: currentTask.id 
+            })
+            toast.success(`Tarefa recorrente criada para ${nextDueDate}`)
+          }
+        }
+      } else if (currentTask?.status !== data.status) {
+        await logActivity(data.id, 'moved', CURRENT_USER, {
+          from: currentTask?.status,
+          to: data.status,
+        })
+      } else if (changes.length > 0) {
+        await logActivity(data.id, 'updated', CURRENT_USER, { changes })
+      }
+      
+      // Optimistic update - update local state immediately
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === data.id
+            ? {
+                ...t,
+                ...updateData,
+              }
+            : t
+        )
+      )
+      
       toast.success('Tarefa atualizada!')
     } else {
       // Create new task
@@ -411,22 +592,33 @@ export default function Board() {
         ? Math.max(...columnTasks.map((t) => t.position))
         : -1
 
-      const { error } = await supabase.from('tasks').insert({
-        title: data.title,
-        description: data.description || null,
-        status: data.status || 'todo',
-        priority: data.priority || 'medium',
-        assignee: data.assignee || 'guilherme',
-        due_date: data.due_date || null,
-        tags: data.tags || [],
-        position: maxPosition + 1,
-      })
+      const { data: newTask, error } = await supabase
+        .from('tasks')
+        .insert({
+          title: data.title,
+          description: data.description || null,
+          status: data.status || 'todo',
+          priority: data.priority || 'medium',
+          assignee: data.assignee || 'guilherme',
+          due_date: data.due_date || null,
+          tags: data.tags || [],
+          recurrence: data.recurrence || 'none',
+          position: maxPosition + 1,
+        })
+        .select()
+        .single()
 
       if (error) {
         console.error('Error creating task:', error)
         toast.error('Erro ao criar tarefa')
         return
       }
+      
+      // Log activity
+      if (newTask) {
+        await logActivity(newTask.id, 'created', CURRENT_USER)
+      }
+      
       toast.success('Tarefa criada!')
     }
 
@@ -435,6 +627,9 @@ export default function Board() {
 
   // Delete task
   const handleDeleteTask = async (id: string) => {
+    // Log activity before delete
+    await logActivity(id, 'deleted', CURRENT_USER)
+    
     const { error } = await supabase.from('tasks').delete().eq('id', id)
 
     if (error) {
@@ -454,7 +649,7 @@ export default function Board() {
         toastOptions={{
           duration: 3000,
           style: {
-            background: '#333',
+            background: theme === 'dark' ? '#1e293b' : '#333',
             color: '#fff',
             borderRadius: '8px',
           },
@@ -467,7 +662,7 @@ export default function Board() {
         }}
       />
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-[var(--color-border)]">
+      <header className="sticky top-0 z-40 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             {/* Title and stats */}
@@ -496,6 +691,38 @@ export default function Board() {
 
             {/* Actions */}
             <div className="flex items-center gap-3">
+              {/* View Toggle */}
+              <div className="flex items-center bg-[var(--color-bg)] rounded-lg p-1 border border-[var(--color-border)]">
+                <button
+                  onClick={() => handleViewModeChange('kanban')}
+                  className={`
+                    flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+                    transition-all duration-150
+                    ${viewMode === 'kanban'
+                      ? 'bg-[var(--color-accent)] text-white shadow-sm'
+                      : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+                    }
+                  `}
+                >
+                  <LayoutGrid size={16} />
+                  <span className="hidden sm:inline">Kanban</span>
+                </button>
+                <button
+                  onClick={() => handleViewModeChange('calendar')}
+                  className={`
+                    flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium
+                    transition-all duration-150
+                    ${viewMode === 'calendar'
+                      ? 'bg-[var(--color-accent)] text-white shadow-sm'
+                      : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+                    }
+                  `}
+                >
+                  <Calendar size={16} />
+                  <span className="hidden sm:inline">Calendário</span>
+                </button>
+              </div>
+
               {/* Filter by tag */}
               <div className="flex items-center gap-2">
                 <Tag size={16} className="text-[var(--color-text-muted)]" />
@@ -504,7 +731,7 @@ export default function Board() {
                   onChange={(e) => setFilterTag(e.target.value as TagId | 'all')}
                   className="
                     h-9 px-3 pr-8 rounded-md text-sm appearance-none
-                    border border-[var(--color-border)] bg-white
+                    border border-[var(--color-border)] bg-[var(--color-surface)]
                     text-[var(--color-text-primary)]
                     hover:border-[var(--color-border-hover)]
                     focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
@@ -529,7 +756,7 @@ export default function Board() {
                   onChange={(e) => setFilterAssignee(e.target.value as Assignee | 'all')}
                   className="
                     h-9 px-3 pr-8 rounded-md text-sm appearance-none
-                    border border-[var(--color-border)] bg-white
+                    border border-[var(--color-border)] bg-[var(--color-surface)]
                     text-[var(--color-text-primary)]
                     hover:border-[var(--color-border-hover)]
                     focus:border-[var(--color-accent)] focus:ring-1 focus:ring-[var(--color-accent)]
@@ -545,6 +772,20 @@ export default function Board() {
                   ))}
                 </select>
               </div>
+
+              {/* Dark mode toggle */}
+              <button
+                onClick={toggleTheme}
+                className="
+                  p-2 rounded-md text-[var(--color-text-muted)]
+                  hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-secondary)]
+                  transition-colors duration-150
+                "
+                aria-label={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+                title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+              >
+                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
 
               {/* Refresh button */}
               <button
@@ -578,14 +819,23 @@ export default function Board() {
         </div>
       </header>
 
-      {/* Board */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-6">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-[var(--color-text-muted)]">A carregar...</div>
           </div>
+        ) : viewMode === 'calendar' ? (
+          /* Calendar View */
+          <CalendarView
+            tasks={filteredTasks}
+            onTaskClick={openEditTaskModal}
+            onDayClick={handleCalendarDayClick}
+          />
         ) : (
+          /* Kanban Board View */
           <DndContext
+            key={dndKey}
             sensors={sensors}
             collisionDetection={closestCorners}
             onDragStart={handleDragStart}
@@ -624,6 +874,7 @@ export default function Board() {
       <TaskModal
         task={editingTask}
         defaultStatus={defaultColumnForNewTask}
+        defaultDueDate={defaultDueDate}
         isOpen={isModalOpen}
         onClose={closeModal}
         onSave={handleSaveTask}
