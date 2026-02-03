@@ -63,7 +63,6 @@ function Avatar({ assigneeId, label, size = 24 }: { assigneeId: string; label: s
 }
 
 export default function TaskCard({ task, onClick, onDelete, isDragging }: TaskCardProps) {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const {
     attributes,
     listeners,
@@ -126,42 +125,16 @@ export default function TaskCard({ task, onClick, onDelete, isDragging }: TaskCa
       {/* Quick delete button - appears on hover */}
       {onDelete && !dragging && (
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          {showDeleteConfirm ? (
-            <div 
-              className="flex items-center gap-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-1 shadow-lg"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDelete(task.id)
-                }}
-                className="px-2 py-1 text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded transition-colors"
-              >
-                Apagar
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setShowDeleteConfirm(false)
-                }}
-                className="px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowDeleteConfirm(true)
-              }}
-              className="p-1.5 rounded-md text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors"
-              title="Apagar tarefa"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(task.id)
+            }}
+            className="p-1.5 rounded-md text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors"
+            title="Apagar tarefa"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
       )}
 
