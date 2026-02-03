@@ -12,6 +12,7 @@ interface ColumnProps {
   title: string
   tasks: Task[]
   onTaskClick: (task: Task) => void
+  onTaskDelete?: (id: string) => void
   onAddTask: () => void
   onQuickAdd: (title: string) => void
 }
@@ -28,6 +29,7 @@ export default function Column({
   title,
   tasks,
   onTaskClick,
+  onTaskDelete,
   onAddTask,
   onQuickAdd,
 }: ColumnProps) {
@@ -114,6 +116,7 @@ export default function Column({
                 key={task.id}
                 task={task}
                 onClick={() => onTaskClick(task)}
+                onDelete={onTaskDelete}
               />
             ))}
           </div>

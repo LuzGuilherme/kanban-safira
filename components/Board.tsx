@@ -626,20 +626,32 @@ export default function Board() {
   }
 
   // Delete task
-  const handleDeleteTask = async (id: string) => {
+  const handleDeleteTask = async (id: string, fromModal: boolean = true) => {
     // Log activity before delete
     await logActivity(id, 'deleted', CURRENT_USER)
+    
+    // Optimistic update - remove from local state immediately
+    setTasks((prev) => prev.filter((t) => t.id !== id))
     
     const { error } = await supabase.from('tasks').delete().eq('id', id)
 
     if (error) {
       console.error('Error deleting task:', error)
       toast.error('Erro ao eliminar tarefa')
+      // Refetch to restore state if delete failed
+      fetchTasks()
       return
     }
 
     toast.success('Tarefa eliminada!')
-    closeModal()
+    if (fromModal) {
+      closeModal()
+    }
+  }
+  
+  // Quick delete handler for task cards
+  const handleQuickDelete = async (id: string) => {
+    await handleDeleteTask(id, false)
   }
 
   return (
@@ -850,6 +862,7 @@ export default function Board() {
                   title={column.title}
                   tasks={tasksByStatus[column.id]}
                   onTaskClick={openEditTaskModal}
+                  onTaskDelete={handleQuickDelete}
                   onAddTask={() => openNewTaskModal(column.id)}
                   onQuickAdd={(title) => handleQuickAdd(title, column.id)}
                 />
